@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlastRadius — Register</title>
+    <meta name="description" content="Create your BlastRadius account">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link th:href="@{/css/main.css}" rel="stylesheet">
+</head>
+<body class="auth-body">
+    <div class="auth-wrapper">
+        <div class="auth-card">
+            <div class="auth-brand">
+                <div class="brand-icon">⚡</div>
+                <h1 class="brand-name">BlastRadius</h1>
+                <p class="brand-tagline">Create your account</p>
+            </div>
+
+            <div id="register-error" class="alert alert-error" style="display:none"></div>
+            <div id="register-success" class="alert alert-info" style="display:none"></div>
+
+            <form id="register-form" class="auth-form" onsubmit="handleRegister(event)">
+                <div class="form-group">
+                    <label for="reg-username" class="form-label">Username</label>
+                    <input type="text" id="reg-username" name="username"
+                           class="form-input" placeholder="Choose a username"
+                           required minlength="3" maxlength="50">
+                </div>
+                <div class="form-group">
+                    <label for="reg-password" class="form-label">Password</label>
+                    <input type="password" id="reg-password" name="password"
+                           class="form-input" placeholder="Choose a password"
+                           required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="reg-role" class="form-label">Role</label>
+                    <select id="reg-role" name="role" class="form-input">
+                        <option value="USER">User</option>
+                        <option value="ADMIN">Admin</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-primary btn-full" id="register-btn">
+                    Create Account
+                </button>
+            </form>
+
+            <div class="auth-footer">
+                Already have an account?
+                <a href="/login" class="auth-link">Sign in</a>
+            </div>
+        </div>
+        <div class="auth-glow"></div>
+    </div>
+
+    <script>
+    async function handleRegister(e) {
+        e.preventDefault();
+        const btn = document.getElementById('register-btn');
+        btn.textContent = 'Creating...';
+        btn.disabled = true;
+
+        const payload = {
+            username: document.getElementById('reg-username').value,
+            password: document.getElementById('reg-password').value,
+            role: document.getElementById('reg-role').value
+        };
+
+        try {
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.success) {
+                localStorage.setItem('br_token', data.data.accessToken);
+                localStorage.setItem('br_refresh', data.data.refreshToken);
+                localStorage.setItem('br_user', data.data.username);
+                document.getElementById('register-success').style.display='block';
+                document.getElementById('register-success').textContent = 'Account created! Redirecting...';
+                setTimeout(() => { window.location.href = '/dashboard'; }, 1000);
+            } else {
+                showError(data.message || (data.errors && data.errors.join(', ')));
+            }
+        } catch(err) {
+            showError('Registration failed. Please try again.');
+        } finally {
+            btn.textContent = 'Create Account';
+            btn.disabled = false;
+        }
+    }
+
+    function showError(msg) {
+        const el = document.getElementById('register-error');
+        el.style.display = 'block';
+        el.textContent = msg;
+    }
+    </script>
+</body>
+</html>

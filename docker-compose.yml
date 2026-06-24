@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────
+  # PostgreSQL
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: blastradius-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: blastradius
+      POSTGRES_USER: blastradius
+      POSTGRES_PASSWORD: blastradius
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blastradius -d blastradius"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # Redis
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: blastradius-redis
+    restart: unless-stopped
+    command: redis-server --save 20 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # BlastRadius Application
+  # ─────────────────────────────────────────
+  blast-radius-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blastradius-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: blastradius
+      DB_USER: blastradius
+      DB_PASSWORD: blastradius
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: "BlastRadius-JWT-Secret-Key-Please-Change-In-Production-Min-256-Bits"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      # Mount the host file system so the scanner can access local repositories
+      - /:/host:ro
+
+volumes:
+  postgres_data:
+  redis_data:

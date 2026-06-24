@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlastRadius — Reports</title>
+    <meta name="description" content="BlastRadius Reports Center">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link th:href="@{/css/main.css}" rel="stylesheet">
+</head>
+<body class="app-body">
+
+<aside class="sidebar">
+    <div class="sidebar-brand"><span class="brand-icon-sm">⚡</span><span class="brand-text">BlastRadius</span></div>
+    <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+        <a href="/scanner" class="nav-item"><span class="nav-icon">🔍</span><span>Scanner</span></a>
+        <a href="/graph" class="nav-item"><span class="nav-icon">🕸️</span><span>Dependency Graph</span></a>
+        <a href="/reports" class="nav-item active"><span class="nav-icon">📋</span><span>Reports</span></a>
+        <a href="/swagger-ui.html" class="nav-item" target="_blank"><span class="nav-icon">📖</span><span>API Docs</span></a>
+    </nav>
+    <div class="sidebar-footer">
+        <span class="user-badge" id="user-badge">👤 —</span>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+</aside>
+
+<main class="main-content">
+    <header class="page-header">
+        <div>
+            <h1 class="page-title">Reports & Export</h1>
+            <p class="page-subtitle">Risk analysis, architecture violations, and data exports</p>
+        </div>
+        <div class="header-actions">
+            <select id="scan-selector-report" class="form-select" onchange="setScan(this.value)">
+                <option value="">— Select a scan —</option>
+                <th:block th:each="scan : ${scans}">
+                    <option th:value="${scan.id}"
+                            th:text="${scan.repoName + ' (#' + scan.id + ')'}"
+                            th:selected="${scan.id == activeScanId}"
+                            th:disabled="${scan.status != 'COMPLETED'}">
+                    </option>
+                </th:block>
+            </select>
+        </div>
+    </header>
+
+    <!-- Export Cards -->
+    <div class="reports-export-grid">
+        <div class="export-card">
+            <div class="export-icon">📊</div>
+            <h3>Risk Report (PDF)</h3>
+            <p>Download a PDF report of all components ranked by risk score.</p>
+            <button class="btn-primary" onclick="download('pdf/risk')">Download PDF</button>
+        </div>
+        <div class="export-card">
+            <div class="export-icon">📦</div>
+            <h3>Components (CSV)</h3>
+            <p>Export all discovered components with metadata in CSV format.</p>
+            <button class="btn-primary" onclick="download('csv/components')">Download CSV</button>
+        </div>
+        <div class="export-card">
+            <div class="export-icon">🔗</div>
+            <h3>Relationships (CSV)</h3>
+            <p>Export all dependency edges between components as CSV.</p>
+            <button class="btn-primary" onclick="download('csv/relationships')">Download CSV</button>
+        </div>
+        <div class="export-card">
+            <div class="export-icon">🗺️</div>
+            <h3>Full Graph (JSON)</h3>
+            <p>Export the complete dependency graph as a structured JSON file.</p>
+            <button class="btn-primary" onclick="download('json')">Download JSON</button>
+        </div>
+    </div>
+
+    <!-- Report Tabs -->
+    <div class="card" style="margin-top:1.5rem">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('risk', this)">🚨 Risk Report</button>
+            <button class="tab-btn" onclick="showTab('architecture', this)">🏗️ Architecture Drift</button>
+            <button class="tab-btn" onclick="showTab('deadcode', this)">💀 Dead Code</button>
+        </div>
+
+        <!-- Risk Report -->
+        <div id="tab-risk" class="tab-content active">
+            <div class="card-header">
+                <h2 class="card-title">Highest Risk Components</h2>
+                <button class="btn-secondary btn-sm" onclick="loadRiskReport()">↺ Refresh</button>
+            </div>
+            <div class="table-scroll" id="risk-table-wrap">
+                <p class="text-muted" style="padding:1rem">Select a scan to load the risk report.</p>
+            </div>
+        </div>
+
+        <!-- Architecture Drift -->
+        <div id="tab-architecture" class="tab-content" style="display:none">
+            <div class="card-header">
+                <h2 class="card-title">Architecture Violations</h2>
+                <button class="btn-secondary btn-sm" onclick="loadArchReport()">↺ Refresh</button>
+            </div>
+            <div id="arch-report-wrap" style="padding:1rem">
+                <p class="text-muted">Select a scan to detect architecture violations.</p>
+            </div>
+        </div>
+
+        <!-- Dead Code -->
+        <div id="tab-deadcode" class="tab-content" style="display:none">
+            <div class="card-header">
+                <h2 class="card-title">Dead Code — Unreferenced Components</h2>
+                <button class="btn-secondary btn-sm" onclick="loadDeadCode()">↺ Refresh</button>
+            </div>
+            <div class="table-scroll" id="deadcode-table-wrap">
+                <p class="text-muted" style="padding:1rem">Select a scan to detect dead code.</p>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    const token = localStorage.getItem('br_token');
+    const username = localStorage.getItem('br_user');
+    if (!token) { window.location.href = '/login'; }
+    if (username) { document.getElementById('user-badge').textContent = '👤 ' + username; }
+    function logout() { localStorage.clear(); window.location.href = '/login'; }
+
+    let activeScanId = /*[[${activeScanId}]]*/ null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+        if (activeScanId) {
+            document.getElementById('scan-selector-report').value = activeScanId;
+            loadRiskReport();
+        }
+    });
+
+    function setScan(id) {
+        activeScanId = id;
+        if (id) {
+            window.history.replaceState({}, '', '/reports?scanId=' + id);
+            loadRiskReport();
+        }
+    }
+
+    function showTab(tab, btn) {
+        document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('tab-' + tab).style.display = 'block';
+        btn.classList.add('active');
+
+        if (tab === 'architecture') loadArchReport();
+        if (tab === 'deadcode') loadDeadCode();
+    }
+
+    async function loadRiskReport() {
+        if (!activeScanId) return;
+        const wrap = document.getElementById('risk-table-wrap');
+        wrap.innerHTML = '<div class="spinner" style="margin:1rem auto"></div>';
+        try {
+            const res = await fetch(`/api/reports/risk?scanId=${activeScanId}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const nodes = data.data || [];
+            if (!nodes.length) { wrap.innerHTML = '<p class="text-muted" style="padding:1rem">No components found.</p>'; return; }
+
+            wrap.innerHTML = `
+            <table class="data-table">
+                <thead><tr><th>Component</th><th>Type</th><th>Package</th><th>Lines</th><th>Risk Score</th><th>Category</th></tr></thead>
+                <tbody>${nodes.map(n => `
+                    <tr>
+                        <td class="font-mono">${n.name||'—'}</td>
+                        <td><span class="type-badge">${n.componentType||'—'}</span></td>
+                        <td class="text-sm text-muted">${n.packageName||'—'}</td>
+                        <td>${n.linesOfCode||'—'}</td>
+                        <td>
+                            <div class="risk-bar-wrap">
+                                <div class="risk-bar ${n.riskCategory||'LOW'}" style="width:${n.riskScore||0}%"></div>
+                                <span>${n.riskScore||0}</span>
+                            </div>
+                        </td>
+                        <td><span class="badge badge-${(n.riskCategory||'low').toLowerCase()}">${n.riskCategory||'LOW'}</span></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+        } catch(err) { wrap.innerHTML = `<p class="text-error" style="padding:1rem">Error: ${err.message}</p>`; }
+    }
+
+    async function loadArchReport() {
+        if (!activeScanId) return;
+        const wrap = document.getElementById('arch-report-wrap');
+        wrap.innerHTML = '<div class="spinner" style="margin:1rem auto"></div>';
+        try {
+            const res = await fetch(`/api/reports/architecture?scanId=${activeScanId}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const violations = data.data || [];
+            if (!violations.length) {
+                wrap.innerHTML = '<div class="alert alert-info">✅ No architecture violations detected. Clean architecture!</div>';
+                return;
+            }
+            wrap.innerHTML = violations.map(v => `
+                <div class="violation-card">
+                    <div class="violation-type">${v.type.replace(/_/g, ' ')}</div>
+                    <div class="violation-desc">${v.description}</div>
+                    <div class="violation-components">
+                        <span class="font-mono">${v.sourceComponent}</span>
+                        <span class="arrow">→</span>
+                        <span class="font-mono">${v.targetComponent}</span>
+                    </div>
+                </div>`).join('');
+        } catch(err) { wrap.innerHTML = `<p class="text-error">Error: ${err.message}</p>`; }
+    }
+
+    async function loadDeadCode() {
+        if (!activeScanId) return;
+        const wrap = document.getElementById('deadcode-table-wrap');
+        wrap.innerHTML = '<div class="spinner" style="margin:1rem auto"></div>';
+        try {
+            const res = await fetch(`/api/dead-code?scanId=${activeScanId}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const nodes = data.data || [];
+            if (!nodes.length) {
+                wrap.innerHTML = '<div class="alert alert-info" style="margin:1rem">✅ No dead code detected.</div>';
+                return;
+            }
+            wrap.innerHTML = `
+            <table class="data-table">
+                <thead><tr><th>Component</th><th>Type</th><th>Package</th><th>File</th></tr></thead>
+                <tbody>${nodes.map(n => `
+                    <tr>
+                        <td class="font-mono">${n.name||'—'}</td>
+                        <td><span class="type-badge">${n.componentType||'—'}</span></td>
+                        <td class="text-sm text-muted">${n.packageName||'—'}</td>
+                        <td class="text-sm text-muted">${n.filePath ? n.filePath.split('/').pop() : '—'}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+        } catch(err) { wrap.innerHTML = `<p class="text-error" style="padding:1rem">Error: ${err.message}</p>`; }
+    }
+
+    function download(type) {
+        if (!activeScanId) { alert('Please select a scan first.'); return; }
+        window.open(`/api/export/${type}?scanId=${activeScanId}`, '_blank');
+    }
+</script>
+</body>
+</html>

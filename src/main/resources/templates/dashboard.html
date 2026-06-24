@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlastRadius — Dashboard</title>
+    <meta name="description" content="BlastRadius Engineering Dependency Intelligence — Dashboard">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link th:href="@{/css/main.css}" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body class="app-body">
+
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+        <span class="brand-icon-sm">⚡</span>
+        <span class="brand-text">BlastRadius</span>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item active" id="nav-dashboard">
+            <span class="nav-icon">📊</span><span>Dashboard</span>
+        </a>
+        <a href="/scanner" class="nav-item" id="nav-scanner">
+            <span class="nav-icon">🔍</span><span>Scanner</span>
+        </a>
+        <a href="/graph" class="nav-item" id="nav-graph">
+            <span class="nav-icon">🕸️</span><span>Dependency Graph</span>
+        </a>
+        <a href="/reports" class="nav-item" id="nav-reports">
+            <span class="nav-icon">📋</span><span>Reports</span>
+        </a>
+        <a href="/swagger-ui.html" class="nav-item" target="_blank">
+            <span class="nav-icon">📖</span><span>API Docs</span>
+        </a>
+    </nav>
+    <div class="sidebar-footer">
+        <span class="user-badge" id="user-badge">👤 —</span>
+        <button class="btn-logout" onclick="logout()" id="logout-btn">Sign Out</button>
+    </div>
+</aside>
+
+<!-- Main Content -->
+<main class="main-content">
+    <header class="page-header">
+        <div>
+            <h1 class="page-title">Dashboard</h1>
+            <p class="page-subtitle">Engineering Dependency Intelligence</p>
+        </div>
+        <div class="header-actions">
+            <select id="scan-selector" class="form-select" onchange="switchScan(this.value)">
+                <option value="">— Select a scan —</option>
+                <th:block th:each="scan : ${scans}">
+                    <option th:value="${scan.id}"
+                            th:text="${scan.repoName + ' (' + scan.status + ') — #' + scan.id}"
+                            th:selected="${scan.id == activeScanId}">
+                    </option>
+                </th:block>
+            </select>
+            <a href="/scanner" class="btn-primary">+ New Scan</a>
+        </div>
+    </header>
+
+    <!-- No scan state -->
+    <div th:if="${dashboard == null}" class="empty-state">
+        <div class="empty-icon">🚀</div>
+        <h2>No scan results yet</h2>
+        <p>Start by scanning a local repository to discover your codebase dependencies.</p>
+        <a href="/scanner" class="btn-primary">Start First Scan</a>
+    </div>
+
+    <!-- Dashboard content -->
+    <div th:if="${dashboard != null}" id="dashboard-content">
+        <div class="repo-badge">
+            <span class="repo-icon">📁</span>
+            <strong th:text="${dashboard.repoName}">repo</strong>
+            <span class="badge badge-scan" th:text="'Scan #' + ${activeScanId}"></span>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="metrics-grid">
+            <div class="metric-card metric-blue">
+                <div class="metric-label">APIs</div>
+                <div class="metric-value" th:text="${dashboard.totalApis}">0</div>
+                <div class="metric-icon">🌐</div>
+            </div>
+            <div class="metric-card metric-purple">
+                <div class="metric-label">Services</div>
+                <div class="metric-value" th:text="${dashboard.totalServices}">0</div>
+                <div class="metric-icon">⚙️</div>
+            </div>
+            <div class="metric-card metric-green">
+                <div class="metric-label">Repositories</div>
+                <div class="metric-value" th:text="${dashboard.totalRepositories}">0</div>
+                <div class="metric-icon">🗄️</div>
+            </div>
+            <div class="metric-card metric-orange">
+                <div class="metric-label">Entities</div>
+                <div class="metric-value" th:text="${dashboard.totalEntities}">0</div>
+                <div class="metric-icon">📦</div>
+            </div>
+            <div class="metric-card metric-teal">
+                <div class="metric-label">Tables</div>
+                <div class="metric-value" th:text="${dashboard.totalTables}">0</div>
+                <div class="metric-icon">🗃️</div>
+            </div>
+            <div class="metric-card metric-pink">
+                <div class="metric-label">Events</div>
+                <div class="metric-value" th:text="${dashboard.totalEvents}">0</div>
+                <div class="metric-icon">📡</div>
+            </div>
+            <div class="metric-card metric-yellow">
+                <div class="metric-label">Dependencies</div>
+                <div class="metric-value" th:text="${dashboard.totalDependencies}">0</div>
+                <div class="metric-icon">🔗</div>
+            </div>
+            <div class="metric-card metric-red" th:classappend="${dashboard.circularDependencies > 0 ? ' metric-alert' : ''}">
+                <div class="metric-label">Circular Deps</div>
+                <div class="metric-value" th:text="${dashboard.circularDependencies}">0</div>
+                <div class="metric-icon">🔄</div>
+            </div>
+            <div class="metric-card metric-gray">
+                <div class="metric-label">Dead Code</div>
+                <div class="metric-value" th:text="${dashboard.deadCodeCount}">0</div>
+                <div class="metric-icon">💀</div>
+            </div>
+            <div class="metric-card metric-red2">
+                <div class="metric-label">Critical Risk</div>
+                <div class="metric-value" th:text="${dashboard.criticalRiskComponents}">0</div>
+                <div class="metric-icon">🚨</div>
+            </div>
+        </div>
+
+        <!-- Charts + Tables Row -->
+        <div class="insights-grid">
+            <!-- Component distribution chart -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Component Distribution</h2>
+                </div>
+                <div class="chart-container">
+                    <canvas id="componentChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Risk Components -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">🚨 Highest Risk Components</h2>
+                </div>
+                <div class="table-scroll">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Component</th><th>Type</th><th>Score</th><th>Category</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr th:each="c : ${dashboard.topRiskComponents}">
+                                <td th:text="${c.name}" class="font-mono"></td>
+                                <td><span class="type-badge" th:text="${c.componentType}"></span></td>
+                                <td>
+                                    <div class="risk-bar-wrap">
+                                        <div class="risk-bar"
+                                             th:style="'width:' + ${c.riskScore} + '%'"
+                                             th:classappend="${c.riskCategory}"></div>
+                                        <span th:text="${c.riskScore}"></span>
+                                    </div>
+                                </td>
+                                <td><span class="badge" th:classappend="'badge-' + ${#strings.toLowerCase(c.riskCategory)}"
+                                          th:text="${c.riskCategory}"></span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    const token = localStorage.getItem('br_token');
+    const username = localStorage.getItem('br_user');
+    if (!token) { window.location.href = '/login'; }
+    if (username) { document.getElementById('user-badge').textContent = '👤 ' + username; }
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = '/login';
+    }
+
+    function switchScan(scanId) {
+        if (scanId) window.location.href = '/dashboard?scanId=' + scanId;
+    }
+
+    /*[# th:if="${dashboard != null}"]*/
+    const componentsByType = /*[[${dashboard.componentsByType}]]*/ {};
+    if (Object.keys(componentsByType).length > 0) {
+        const ctx = document.getElementById('componentChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(componentsByType),
+                datasets: [{
+                    data: Object.values(componentsByType),
+                    backgroundColor: [
+                        '#6366f1','#8b5cf6','#06b6d4','#10b981',
+                        '#f59e0b','#ef4444','#ec4899','#84cc16','#f97316','#14b8a6'
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: { color: '#94a3b8', font: { family: 'Inter', size: 12 } }
+                    }
+                }
+            }
+        });
+    }
+    /*[/]*/
+</script>
+</body>
+</html>

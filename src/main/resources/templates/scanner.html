@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlastRadius — Scanner</title>
+    <meta name="description" content="BlastRadius Repository Scanner">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link th:href="@{/css/main.css}" rel="stylesheet">
+</head>
+<body class="app-body">
+
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <span class="brand-icon-sm">⚡</span>
+        <span class="brand-text">BlastRadius</span>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+        <a href="/scanner" class="nav-item active"><span class="nav-icon">🔍</span><span>Scanner</span></a>
+        <a href="/graph" class="nav-item"><span class="nav-icon">🕸️</span><span>Dependency Graph</span></a>
+        <a href="/reports" class="nav-item"><span class="nav-icon">📋</span><span>Reports</span></a>
+        <a href="/swagger-ui.html" class="nav-item" target="_blank"><span class="nav-icon">📖</span><span>API Docs</span></a>
+    </nav>
+    <div class="sidebar-footer">
+        <span class="user-badge" id="user-badge">👤 —</span>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+</aside>
+
+<main class="main-content">
+    <header class="page-header">
+        <div>
+            <h1 class="page-title">Repository Scanner</h1>
+            <p class="page-subtitle">Scan a local Java repository to discover all components and relationships</p>
+        </div>
+    </header>
+
+    <!-- Scan Form -->
+    <div class="card scan-card">
+        <div class="card-header">
+            <h2 class="card-title">🔍 Start New Scan</h2>
+        </div>
+        <div class="scan-form-body">
+            <div class="form-group">
+                <label class="form-label">Repository Path</label>
+                <input type="text" id="repo-path" class="form-input form-input-lg"
+                       placeholder="/Users/you/projects/my-spring-app"
+                       autocomplete="off">
+                <p class="form-hint">Enter the absolute path to a local Java/Spring Boot repository.</p>
+            </div>
+            <div class="scan-actions">
+                <button id="scan-btn" class="btn-primary btn-lg" onclick="startScan()">
+                    <span id="scan-btn-text">⚡ Scan Repository</span>
+                </button>
+                <button id="git-btn" class="btn-secondary btn-lg" onclick="analyzeGit()">
+                    📊 Git Intelligence
+                </button>
+            </div>
+        </div>
+        <div id="scan-status" class="scan-status" style="display:none">
+            <div class="status-indicator">
+                <div class="spinner" id="scan-spinner"></div>
+                <span id="scan-status-text">Scanning...</span>
+            </div>
+            <div id="scan-progress-detail"></div>
+        </div>
+        <div id="scan-result" class="scan-result" style="display:none"></div>
+    </div>
+
+    <!-- Git Intelligence Result -->
+    <div id="git-result-card" class="card" style="display:none; margin-top:1.5rem">
+        <div class="card-header">
+            <h2 class="card-title">📊 Git Intelligence Report</h2>
+        </div>
+        <div id="git-result-body" class="card-body"></div>
+    </div>
+
+    <!-- Existing Scans -->
+    <div class="card" style="margin-top:1.5rem">
+        <div class="card-header">
+            <h2 class="card-title">📁 Scan History</h2>
+        </div>
+        <div class="table-scroll">
+            <table class="data-table" id="scans-table">
+                <thead>
+                    <tr>
+                        <th>#</th><th>Repository</th><th>Status</th><th>Files</th>
+                        <th>Components</th><th>Relationships</th><th>Time</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="scan : ${scans}">
+                        <td th:text="${scan.id}" class="font-mono"></td>
+                        <td th:text="${scan.repoName}"></td>
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${scan.status == 'COMPLETED' ? 'badge-low' : (scan.status == 'FAILED' ? 'badge-critical' : 'badge-medium')}"
+                                  th:text="${scan.status}"></span>
+                        </td>
+                        <td th:text="${scan.totalFiles}"></td>
+                        <td th:text="${scan.totalComponents}"></td>
+                        <td th:text="${scan.totalRelationships}"></td>
+                        <td th:text="${#temporals.format(scan.scannedAt, 'MMM dd HH:mm')}"></td>
+                        <td>
+                            <a th:if="${scan.status == 'COMPLETED'}"
+                               th:href="'/dashboard?scanId=' + ${scan.id}"
+                               class="btn-table-action">View</a>
+                            <span th:if="${scan.status != 'COMPLETED'}" class="text-muted">—</span>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(scans)}">
+                        <td colspan="8" class="empty-row">No scans yet</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<script>
+    const token = localStorage.getItem('br_token');
+    const username = localStorage.getItem('br_user');
+    if (!token) { window.location.href = '/login'; }
+    if (username) { document.getElementById('user-badge').textContent = '👤 ' + username; }
+    function logout() { localStorage.clear(); window.location.href = '/login'; }
+
+    async function startScan() {
+        const repoPath = document.getElementById('repo-path').value.trim();
+        if (!repoPath) { alert('Please enter a repository path.'); return; }
+
+        const btn = document.getElementById('scan-btn');
+        btn.disabled = true;
+        document.getElementById('scan-btn-text').textContent = '⏳ Scanning...';
+        document.getElementById('scan-status').style.display = 'flex';
+        document.getElementById('scan-result').style.display = 'none';
+
+        try {
+            const res = await fetch('/api/repositories/scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token
+                },
+                body: JSON.stringify({ repoPath })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                const scanId = data.data.id;
+                document.getElementById('scan-status-text').textContent =
+                    'Scan #' + scanId + ' started. Polling for completion...';
+                pollScanStatus(scanId);
+            } else {
+                showScanError(data.message || 'Scan failed');
+                btn.disabled = false;
+                document.getElementById('scan-btn-text').textContent = '⚡ Scan Repository';
+            }
+        } catch(err) {
+            showScanError('Network error: ' + err.message);
+            btn.disabled = false;
+            document.getElementById('scan-btn-text').textContent = '⚡ Scan Repository';
+        }
+    }
+
+    async function pollScanStatus(scanId) {
+        const maxAttempts = 60;
+        let attempts = 0;
+
+        const interval = setInterval(async () => {
+            attempts++;
+            try {
+                const res = await fetch('/api/repositories/scans/' + scanId, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await res.json();
+                const scan = data.data;
+
+                document.getElementById('scan-status-text').textContent =
+                    `Scan #${scanId}: ${scan.status} — Files: ${scan.totalFiles || 0}, Components: ${scan.totalComponents || 0}`;
+
+                if (scan.status === 'COMPLETED') {
+                    clearInterval(interval);
+                    document.getElementById('scan-spinner').style.display = 'none';
+                    showScanSuccess(scan);
+                    document.getElementById('scan-btn').disabled = false;
+                    document.getElementById('scan-btn-text').textContent = '⚡ Scan Repository';
+                } else if (scan.status === 'FAILED') {
+                    clearInterval(interval);
+                    showScanError('Scan failed: ' + (scan.errorMessage || 'Unknown error'));
+                    document.getElementById('scan-btn').disabled = false;
+                    document.getElementById('scan-btn-text').textContent = '⚡ Scan Repository';
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(interval);
+                    showScanError('Scan is taking longer than expected. Check scan history.');
+                }
+            } catch(err) {
+                clearInterval(interval);
+                showScanError('Poll error: ' + err.message);
+            }
+        }, 2000);
+    }
+
+    function showScanSuccess(scan) {
+        const el = document.getElementById('scan-result');
+        el.style.display = 'block';
+        el.innerHTML = `
+            <div class="result-success">
+                <div class="result-icon">✅</div>
+                <div class="result-body">
+                    <strong>${scan.repoName}</strong> scanned successfully!<br>
+                    <span>${scan.totalFiles} files &bull; ${scan.totalComponents} components &bull; ${scan.totalRelationships} relationships</span>
+                </div>
+                <a href="/dashboard?scanId=${scan.id}" class="btn-primary">View Dashboard →</a>
+            </div>`;
+        document.getElementById('scan-status').style.display = 'none';
+        setTimeout(() => location.reload(), 3000);
+    }
+
+    function showScanError(msg) {
+        const el = document.getElementById('scan-result');
+        el.style.display = 'block';
+        el.innerHTML = `<div class="result-error"><span>❌ ${msg}</span></div>`;
+        document.getElementById('scan-status').style.display = 'none';
+    }
+
+    async function analyzeGit() {
+        const repoPath = document.getElementById('repo-path').value.trim();
+        if (!repoPath) { alert('Please enter a repository path first.'); return; }
+
+        const btn = document.getElementById('git-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Analyzing...';
+
+        try {
+            const res = await fetch('/api/git/analyze?repoPath=' + encodeURIComponent(repoPath), {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            if (data.success) {
+                renderGitReport(data.data);
+            } else {
+                alert('Git analysis failed: ' + data.message);
+            }
+        } catch(err) {
+            alert('Error: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '📊 Git Intelligence';
+        }
+    }
+
+    function renderGitReport(report) {
+        const card = document.getElementById('git-result-card');
+        const body = document.getElementById('git-result-body');
+        card.style.display = 'block';
+
+        if (report.error) {
+            body.innerHTML = `<p class="text-error">${report.error}</p>`;
+            return;
+        }
+
+        const contribs = (report.contributors || []).slice(0, 10)
+            .map(c => `<tr><td>${c.name}</td><td>${c.commits}</td></tr>`).join('');
+
+        const files = (report.frequentlyChangedFiles || []).slice(0, 10)
+            .map(f => `<tr><td class="font-mono text-sm">${f.filePath}</td><td>${f.changeCount}</td></tr>`).join('');
+
+        body.innerHTML = `
+        <div class="git-stats-grid">
+            <div class="git-stat-item"><div class="git-stat-value">${report.totalCommits}</div><div class="git-stat-label">Total Commits</div></div>
+            <div class="git-stat-item"><div class="git-stat-value">${report.busFactor}</div><div class="git-stat-label">Bus Factor</div></div>
+            <div class="git-stat-item"><div class="git-stat-value">${(report.contributors||[]).length}</div><div class="git-stat-label">Contributors</div></div>
+        </div>
+        <div class="git-tables-grid">
+            <div>
+                <h3 class="section-title">Top Contributors</h3>
+                <table class="data-table"><thead><tr><th>Contributor</th><th>Commits</th></tr></thead>
+                <tbody>${contribs || '<tr><td colspan="2">No data</td></tr>'}</tbody></table>
+            </div>
+            <div>
+                <h3 class="section-title">Hotspot Files (Most Changed)</h3>
+                <table class="data-table"><thead><tr><th>File</th><th>Changes</th></tr></thead>
+                <tbody>${files || '<tr><td colspan="2">No data</td></tr>'}</tbody></table>
+            </div>
+        </div>`;
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlastRadius — Dependency Graph</title>
+    <meta name="description" content="Interactive dependency graph visualization">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link th:href="@{/css/main.css}" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+</head>
+<body class="app-body">
+
+<aside class="sidebar">
+    <div class="sidebar-brand"><span class="brand-icon-sm">⚡</span><span class="brand-text">BlastRadius</span></div>
+    <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item"><span class="nav-icon">📊</span><span>Dashboard</span></a>
+        <a href="/scanner" class="nav-item"><span class="nav-icon">🔍</span><span>Scanner</span></a>
+        <a href="/graph" class="nav-item active"><span class="nav-icon">🕸️</span><span>Dependency Graph</span></a>
+        <a href="/reports" class="nav-item"><span class="nav-icon">📋</span><span>Reports</span></a>
+        <a href="/swagger-ui.html" class="nav-item" target="_blank"><span class="nav-icon">📖</span><span>API Docs</span></a>
+    </nav>
+    <div class="sidebar-footer">
+        <span class="user-badge" id="user-badge">👤 —</span>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+</aside>
+
+<main class="main-content main-content--graph">
+    <header class="page-header">
+        <div>
+            <h1 class="page-title">Dependency Graph</h1>
+            <p class="page-subtitle">Interactive visualization of component dependencies</p>
+        </div>
+        <div class="header-actions">
+            <select id="scan-selector-graph" class="form-select" onchange="loadGraph(this.value)">
+                <option value="">— Select a scan —</option>
+                <th:block th:each="scan : ${scans}">
+                    <option th:value="${scan.id}"
+                            th:text="${scan.repoName + ' (#' + scan.id + ')'}"
+                            th:selected="${scan.id == activeScanId}"
+                            th:disabled="${scan.status != 'COMPLETED'}">
+                    </option>
+                </th:block>
+            </select>
+        </div>
+    </header>
+
+    <div class="graph-layout">
+        <!-- Controls Panel -->
+        <div class="graph-controls">
+            <div class="control-group">
+                <label class="control-label">Filter by Type</label>
+                <div class="type-filters" id="type-filters">
+                    <button class="filter-btn active" data-type="ALL" onclick="filterGraph('ALL', this)">All</button>
+                    <button class="filter-btn" data-type="API" onclick="filterGraph('API', this)">API</button>
+                    <button class="filter-btn" data-type="SERVICE" onclick="filterGraph('SERVICE', this)">Service</button>
+                    <button class="filter-btn" data-type="REPOSITORY" onclick="filterGraph('REPOSITORY', this)">Repository</button>
+                    <button class="filter-btn" data-type="ENTITY" onclick="filterGraph('ENTITY', this)">Entity</button>
+                    <button class="filter-btn" data-type="TABLE" onclick="filterGraph('TABLE', this)">Table</button>
+                    <button class="filter-btn" data-type="CONFIGURATION" onclick="filterGraph('CONFIGURATION', this)">Config</button>
+                    <button class="filter-btn" data-type="JOB" onclick="filterGraph('JOB', this)">Job</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Search Component</label>
+                <input type="text" id="graph-search" class="form-input"
+                       placeholder="Search by name..." oninput="searchGraph(this.value)">
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Layout</label>
+                <select id="layout-select" class="form-select" onchange="applyLayout(this.value)">
+                    <option value="breadthfirst">Breadth First</option>
+                    <option value="cose">Force-Directed</option>
+                    <option value="concentric">Concentric</option>
+                    <option value="grid">Grid</option>
+                    <option value="circle">Circle</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <button class="btn-secondary btn-full" onclick="resetGraph()">↺ Reset View</button>
+                <button class="btn-secondary btn-full" onclick="highlightCycles()" style="margin-top:.5rem">🔴 Show Cycles</button>
+            </div>
+
+            <!-- Node detail panel -->
+            <div id="node-detail" class="node-detail" style="display:none">
+                <div class="node-detail-header">Selected Component</div>
+                <div id="node-detail-body"></div>
+                <button class="btn-primary btn-full" style="margin-top:.75rem" onclick="runImpactAnalysis()">
+                    ⚡ Impact Analysis
+                </button>
+            </div>
+        </div>
+
+        <!-- Graph Canvas -->
+        <div class="graph-container">
+            <div id="graph-loading" class="graph-loading">
+                <div class="spinner-lg"></div>
+                <p>Select a scan to load the dependency graph</p>
+            </div>
+            <div id="cy" style="width:100%;height:100%;display:none"></div>
+        </div>
+    </div>
+
+    <!-- Impact Analysis Modal -->
+    <div id="impact-modal" class="modal-overlay" style="display:none" onclick="closeModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>⚡ Impact Analysis</h2>
+                <button class="modal-close" onclick="document.getElementById('impact-modal').style.display='none'">✕</button>
+            </div>
+            <div id="impact-body" class="modal-body"></div>
+        </div>
+    </div>
+</main>
+
+<script th:inline="javascript">
+    const token = localStorage.getItem('br_token');
+    const username = localStorage.getItem('br_user');
+    if (!token) { window.location.href = '/login'; }
+    if (username) { document.getElementById('user-badge').textContent = '👤 ' + username; }
+    function logout() { localStorage.clear(); window.location.href = '/login'; }
+
+    const TYPE_COLORS = {
+        API: '#6366f1', SERVICE: '#8b5cf6', REPOSITORY: '#06b6d4',
+        ENTITY: '#10b981', TABLE: '#14b8a6', CONFIGURATION: '#f59e0b',
+        JOB: '#f97316', EVENT: '#ec4899', EVENT_CONSUMER: '#ec4899',
+        EVENT_PUBLISHER: '#db2777', DTO: '#84cc16', UNKNOWN: '#64748b'
+    };
+    const TYPE_SHAPES = {
+        API: 'roundrectangle', SERVICE: 'ellipse', REPOSITORY: 'hexagon',
+        ENTITY: 'diamond', TABLE: 'barrel', CONFIGURATION: 'octagon',
+        JOB: 'star', EVENT: 'triangle', DTO: 'vee'
+    };
+
+    let cy = null;
+    let allNodes = [];
+    let allEdges = [];
+    let selectedNodeId = null;
+    let activeScanId = /*[[${activeScanId}]]*/ null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+        if (activeScanId) loadGraph(activeScanId);
+    });
+
+    async function loadGraph(scanId) {
+        if (!scanId) return;
+        activeScanId = scanId;
+        document.getElementById('graph-loading').style.display = 'flex';
+        document.getElementById('cy').style.display = 'none';
+
+        try {
+            const [nodesRes, edgesRes] = await Promise.all([
+                fetch(`/api/components?scanId=${scanId}`, { headers: { 'Authorization': 'Bearer ' + token } }),
+                fetch(`/api/dependencies?scanId=${scanId}`, { headers: { 'Authorization': 'Bearer ' + token } })
+            ]);
+            const nodesData = await nodesRes.json();
+            const edgesData = await edgesRes.json();
+
+            allNodes = (nodesData.data || []);
+            allEdges = (edgesData.data || []);
+
+            renderCytoscape(allNodes, allEdges);
+        } catch(err) {
+            document.getElementById('graph-loading').innerHTML = `<p class="text-error">Failed to load graph: ${err.message}</p>`;
+        }
+    }
+
+    function renderCytoscape(nodes, edges) {
+        const cyElements = {
+            nodes: nodes.map(n => ({
+                data: {
+                    id: String(n.id),
+                    label: n.name,
+                    type: n.componentType || 'UNKNOWN',
+                    risk: n.riskScore || 0,
+                    riskCategory: n.riskCategory || 'LOW',
+                    deadCode: n.deadCode || false,
+                    fullData: n
+                }
+            })),
+            edges: edges
+                .filter(e => e.sourceNodeId && e.targetNodeId)
+                .map(e => ({
+                    data: {
+                        id: 'e' + e.id,
+                        source: String(e.sourceNodeId),
+                        target: String(e.targetNodeId),
+                        label: e.relationshipType
+                    }
+                }))
+        };
+
+        cy = cytoscape({
+            container: document.getElementById('cy'),
+            elements: cyElements,
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'label': 'data(label)',
+                        'background-color': (ele) => TYPE_COLORS[ele.data('type')] || '#64748b',
+                        'shape': (ele) => TYPE_SHAPES[ele.data('type')] || 'ellipse',
+                        'width': (ele) => Math.max(30, Math.min(80, 30 + ele.data('risk') * 0.5)),
+                        'height': (ele) => Math.max(30, Math.min(80, 30 + ele.data('risk') * 0.5)),
+                        'font-size': '10px',
+                        'font-family': 'Inter, sans-serif',
+                        'color': '#e2e8f0',
+                        'text-valign': 'bottom',
+                        'text-halign': 'center',
+                        'text-margin-y': '4px',
+                        'text-outline-width': '2px',
+                        'text-outline-color': '#0f172a',
+                        'border-width': (ele) => ele.data('deadCode') ? 3 : 0,
+                        'border-color': '#ef4444',
+                        'border-style': 'dashed',
+                        'transition-property': 'background-color, width, height',
+                        'transition-duration': '0.2s',
+                        'opacity': 1
+                    }
+                },
+                {
+                    selector: 'node:selected',
+                    style: {
+                        'border-width': 4,
+                        'border-color': '#fbbf24',
+                        'border-style': 'solid'
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 1.5,
+                        'line-color': '#334155',
+                        'target-arrow-color': '#475569',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier',
+                        'font-size': '8px',
+                        'color': '#64748b',
+                        'opacity': 0.7
+                    }
+                },
+                {
+                    selector: 'node.highlighted',
+                    style: { 'border-width': 3, 'border-color': '#f59e0b', 'border-style': 'solid' }
+                },
+                {
+                    selector: 'node.dimmed',
+                    style: { 'opacity': 0.2 }
+                },
+                {
+                    selector: 'node.cycle-node',
+                    style: { 'border-width': 3, 'border-color': '#ef4444', 'border-style': 'solid', 'background-color': '#7f1d1d' }
+                }
+            ],
+            layout: { name: 'breadthfirst', directed: true, padding: 30, spacingFactor: 1.5 }
+        });
+
+        cy.on('tap', 'node', function(evt) {
+            const node = evt.target;
+            selectedNodeId = node.id();
+            showNodeDetail(node.data('fullData'));
+        });
+
+        cy.on('tap', function(evt) {
+            if (evt.target === cy) {
+                document.getElementById('node-detail').style.display = 'none';
+                cy.elements().removeClass('dimmed highlighted');
+                selectedNodeId = null;
+            }
+        });
+
+        document.getElementById('graph-loading').style.display = 'none';
+        document.getElementById('cy').style.display = 'block';
+    }
+
+    function showNodeDetail(node) {
+        const panel = document.getElementById('node-detail');
+        const body = document.getElementById('node-detail-body');
+        panel.style.display = 'block';
+
+        body.innerHTML = `
+            <div class="detail-item"><span class="detail-label">Name</span><span class="detail-value font-mono">${node.name || '—'}</span></div>
+            <div class="detail-item"><span class="detail-label">Type</span><span class="type-badge">${node.componentType || '—'}</span></div>
+            <div class="detail-item"><span class="detail-label">Package</span><span class="detail-value text-sm">${node.packageName || '—'}</span></div>
+            <div class="detail-item"><span class="detail-label">Risk Score</span>
+                <span class="badge badge-${(node.riskCategory||'low').toLowerCase()}">${node.riskScore || 0} ${node.riskCategory || 'LOW'}</span>
+            </div>
+            <div class="detail-item"><span class="detail-label">Dead Code</span><span>${node.deadCode ? '⚠️ Yes' : '✅ No'}</span></div>
+            ${node.endpointPath ? `<div class="detail-item"><span class="detail-label">Endpoint</span><span class="font-mono text-sm">${node.httpMethod || ''} ${node.endpointPath}</span></div>` : ''}
+            ${node.tableName ? `<div class="detail-item"><span class="detail-label">Table</span><span class="font-mono">${node.tableName}</span></div>` : ''}`;
+
+        // Highlight neighbors
+        const selected = cy.getElementById(String(node.id));
+        cy.elements().addClass('dimmed');
+        selected.removeClass('dimmed');
+        selected.connectedEdges().removeClass('dimmed').connectedNodes().removeClass('dimmed');
+    }
+
+    async function runImpactAnalysis() {
+        if (!selectedNodeId || !activeScanId) return;
+        const modal = document.getElementById('impact-modal');
+        const body = document.getElementById('impact-body');
+        modal.style.display = 'flex';
+        body.innerHTML = '<div class="spinner-lg" style="margin:2rem auto"></div>';
+
+        try {
+            const res = await fetch(`/api/impact-analysis?scanId=${activeScanId}&componentId=${selectedNodeId}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const impact = data.data;
+
+            const warnings = (impact.warnings||[]).map(w => `<div class="alert alert-error">${w}</div>`).join('');
+            const affected = (impact.allAffectedComponents||[]).slice(0,20)
+                .map(c => `<li class="impact-item"><span class="font-mono">${c.name}</span><span class="type-badge">${c.componentType}</span></li>`).join('');
+
+            body.innerHTML = `
+                ${warnings}
+                <div class="impact-summary">
+                    <div class="impact-stat"><div class="impact-val">${impact.totalAffectedComponents}</div><div class="impact-lbl">Affected Components</div></div>
+                    <div class="impact-stat"><div class="impact-val">${impact.overallRiskScore}</div><div class="impact-lbl">Avg Risk Score</div></div>
+                    <div class="impact-stat"><div class="impact-val badge badge-${(impact.riskCategory||'low').toLowerCase()}">${impact.riskCategory || 'LOW'}</div><div class="impact-lbl">Risk Category</div></div>
+                </div>
+                <h3 class="section-title" style="margin-top:1rem">Affected Components (top 20)</h3>
+                <ul class="impact-list">${affected || '<li>None</li>'}</ul>`;
+        } catch(err) {
+            body.innerHTML = `<p class="text-error">Failed: ${err.message}</p>`;
+        }
+    }
+
+    function closeModal(event) {
+        document.getElementById('impact-modal').style.display = 'none';
+    }
+
+    function filterGraph(type, btn) {
+        if (!cy) return;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        if (type === 'ALL') {
+            cy.elements().removeClass('dimmed');
+        } else {
+            cy.nodes().addClass('dimmed');
+            cy.nodes().filter(n => n.data('type') === type).removeClass('dimmed');
+        }
+    }
+
+    function searchGraph(query) {
+        if (!cy) return;
+        if (!query.trim()) { cy.elements().removeClass('dimmed highlighted'); return; }
+        cy.nodes().addClass('dimmed');
+        cy.nodes().filter(n => n.data('label').toLowerCase().includes(query.toLowerCase()))
+            .removeClass('dimmed').addClass('highlighted');
+    }
+
+    function applyLayout(name) {
+        if (!cy) return;
+        cy.layout({ name, directed: true, padding: 30, spacingFactor: 1.5, animate: true }).run();
+    }
+
+    function resetGraph() {
+        if (!cy) return;
+        cy.elements().removeClass('dimmed highlighted cycle-node');
+        cy.fit(cy.elements(), 50);
+        document.getElementById('node-detail').style.display = 'none';
+        selectedNodeId = null;
+    }
+
+    async function highlightCycles() {
+        if (!cy || !activeScanId) return;
+        try {
+            const res = await fetch(`/api/circular-dependencies?scanId=${activeScanId}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const data = await res.json();
+            const cycleIds = (data.data || []).map(String);
+            cy.elements().removeClass('cycle-node');
+            cycleIds.forEach(id => cy.getElementById(id).addClass('cycle-node'));
+            alert(`Found ${cycleIds.length} components in circular dependency cycles.`);
+        } catch(err) { alert('Error: ' + err.message); }
+    }
+</script>
+</body>
+</html>

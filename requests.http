@@ -1,0 +1,268 @@
+### BlastRadius — REST API Test Requests
+### Use with VS Code REST Client or IntelliJ HTTP Client
+### ─────────────────────────────────────────────────────────
+
+@base = http://localhost:8080
+@contentType = application/json
+
+### ─── Variables (fill after login) ─────────────────────────
+@token = PUT_JWT_TOKEN_HERE
+@scanId = 1
+@componentId = 1
+
+
+### ═══════════════════════════════════════════════════════════
+### AUTH
+### ═══════════════════════════════════════════════════════════
+
+### [1] Register a new user
+POST {{base}}/api/auth/register
+Content-Type: {{contentType}}
+
+{
+  "username": "admin",
+  "password": "password123",
+  "role": "ADMIN"
+}
+
+---
+
+### [2] Register a regular user
+POST {{base}}/api/auth/register
+Content-Type: {{contentType}}
+
+{
+  "username": "developer",
+  "password": "dev12345",
+  "role": "USER"
+}
+
+---
+
+### [3] Login (copy accessToken and set @token above)
+POST {{base}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "username": "admin",
+  "password": "password123"
+}
+
+---
+
+### [4] Refresh token
+POST {{base}}/api/auth/refresh
+X-Refresh-Token: PUT_REFRESH_TOKEN_HERE
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### REPOSITORY SCANNER
+### ═══════════════════════════════════════════════════════════
+
+### [5] Scan a local git repository
+# Replace the repoPath with a valid local Java project directory.
+POST {{base}}/api/repositories/scan
+Content-Type: {{contentType}}
+Authorization: Bearer {{token}}
+
+{
+  "repoPath": "/Users/deepawasthi/Downloads/BlastRadius",
+  "forceRescan": false
+}
+
+---
+
+### [6] List all scans
+GET {{base}}/api/repositories/scans
+Authorization: Bearer {{token}}
+
+---
+
+### [7] Get specific scan status
+GET {{base}}/api/repositories/scans/{{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### DISCOVERY
+### ═══════════════════════════════════════════════════════════
+
+### [8] Get all APIs (controllers) for a scan
+GET {{base}}/api/apis?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [9] Get all services
+GET {{base}}/api/services?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [10] Get all entities
+GET {{base}}/api/entities?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [11] Get all tables
+GET {{base}}/api/tables?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [12] Get all components (no type filter)
+GET {{base}}/api/components?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [13] Get components filtered by type
+GET {{base}}/api/components?scanId={{scanId}}&type=REPOSITORY
+Authorization: Bearer {{token}}
+
+---
+
+### [14] Search components by name
+GET {{base}}/api/search?query=user&scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### DEPENDENCY ANALYSIS
+### ═══════════════════════════════════════════════════════════
+
+### [15] Get all dependency relationships
+GET {{base}}/api/dependencies?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [16] Impact analysis for a component
+GET {{base}}/api/impact-analysis?scanId={{scanId}}&componentId={{componentId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [17] Get circular dependencies (node IDs in cycles)
+GET {{base}}/api/circular-dependencies?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [18] Get dead code components
+GET {{base}}/api/dead-code?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### RISK ANALYSIS
+### ═══════════════════════════════════════════════════════════
+
+### [19] Get top risk components
+GET {{base}}/api/risk?scanId={{scanId}}&limit=20
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### REPORTS
+### ═══════════════════════════════════════════════════════════
+
+### [20] Dependency report (all relationships)
+GET {{base}}/api/reports/dependency?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [21] Risk report (components ordered by risk)
+GET {{base}}/api/reports/risk?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [22] Architecture drift report (violations)
+GET {{base}}/api/reports/architecture?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### DASHBOARD
+### ═══════════════════════════════════════════════════════════
+
+### [23] Get aggregated dashboard metrics
+GET {{base}}/api/dashboard?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### GIT INTELLIGENCE
+### ═══════════════════════════════════════════════════════════
+
+### [24] Analyze git history
+GET {{base}}/api/git/analyze?repoPath=/Users/deepawasthi/Downloads/BlastRadius
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### EXPORTS
+### ═══════════════════════════════════════════════════════════
+
+### [25] Export full graph as JSON
+GET {{base}}/api/export/json?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [26] Export components as CSV
+GET {{base}}/api/export/csv/components?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [27] Export relationships as CSV
+GET {{base}}/api/export/csv/relationships?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+### [28] Export risk report as PDF
+GET {{base}}/api/export/pdf/risk?scanId={{scanId}}
+Authorization: Bearer {{token}}
+
+---
+
+
+### ═══════════════════════════════════════════════════════════
+### HEALTH & MONITORING
+### ═══════════════════════════════════════════════════════════
+
+### [29] Actuator health check
+GET {{base}}/actuator/health
+
+---
+
+### [30] Actuator metrics
+GET {{base}}/actuator/metrics
+
+---
+
+### [31] Swagger API docs (JSON)
+GET {{base}}/api-docs
+
+---
